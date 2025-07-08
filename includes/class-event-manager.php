@@ -158,5 +158,43 @@ class MPE_Event_Manager {
     update_post_meta( $post_id, '_mpe_categorias_participantes', $categorias );
 }
 
+public function render_patrocinador_metabox( $post ) {
+    wp_nonce_field( 'mpe_patrocinador_nonce_action', 'mpe_patrocinador_nonce' );
+
+    $plano = get_post_meta( $post->ID, '_mpe_plano', true );
+    $limite = get_post_meta( $post->ID, '_mpe_limite_isencoes', true );
+
+    ?>
+    <p>
+        <label>Plano:
+            <select name="mpe_plano">
+                <option value="ouro" <?php selected($plano, 'ouro'); ?>>Ouro</option>
+                <option value="prata" <?php selected($plano, 'prata'); ?>>Prata</option>
+                <option value="bronze" <?php selected($plano, 'bronze'); ?>>Bronze</option>
+            </select>
+        </label>
+    </p>
+    <p>
+        <label>Quantidade de Isenções Contratuais:
+            <input type="number" name="mpe_limite_isencoes" value="<?php echo esc_attr($limite ?: 0); ?>" min="0" />
+        </label>
+    </p>
+    <?php
+}
+
+public function save_patrocinador_meta( $post_id ) {
+    if ( ! isset( $_POST['mpe_patrocinador_nonce'] ) || ! wp_verify_nonce( $_POST['mpe_patrocinador_nonce'], 'mpe_patrocinador_nonce_action' ) ) {
+        return;
+    }
+
+    update_post_meta( $post_id, '_mpe_plano', sanitize_text_field( $_POST['mpe_plano'] ) );
+    update_post_meta( $post_id, '_mpe_limite_isencoes', intval( $_POST['mpe_limite_isencoes'] ) );
+
+    // Se ainda não existir, inicializa o contador de uso com 0
+    if ( get_post_meta( $post_id, '_mpe_isencoes_usadas', true ) === '' ) {
+        update_post_meta( $post_id, '_mpe_isencoes_usadas', 0 );
+    }
+}
+
 
 }
