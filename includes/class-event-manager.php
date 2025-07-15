@@ -9,8 +9,19 @@ class MPE_Event_Manager {
         add_action( 'init', [ $this, 'register_patrocinador_post_type' ] );
         add_action( 'add_meta_boxes', [ $this, 'register_patrocinador_meta_boxes' ] );
         add_action( 'save_post_patrocinador', [ $this, 'save_patrocinador_meta' ] );
+        add_action( 'admin_menu', [ $this, 'register_admin_menu' ] );
 
+    }
 
+    public function register_admin_menu() {
+    add_submenu_page(
+        'edit.php?post_type=evento',
+        'Inscrições',
+        'Inscrições',
+        'manage_options',
+        'inscricoes',
+        [ $this, 'render_inscricoes_page' ]
+    );
     }
 
     public function register_event_post_type() {
@@ -195,6 +206,132 @@ public function save_patrocinador_meta( $post_id ) {
         update_post_meta( $post_id, '_mpe_isencoes_usadas', 0 );
     }
 }
+
+public function render_inscricoes_page() {
+
+    if (isset($_GET['export']) && $_GET['export'] == 1) {
+    header('Content-Type: text/csv');
+    header('Content-Disposition: attachment; filename="inscricoes.csv"');
+    $fh = fopen('php://output', 'w');
+    fputcsv($fh, ['Evento', 'Nome', 'Email', 'CPF', 'Categoria', 'Status', 'Valor', 'Patrocinador', 'Pedido ID', 'Data']);
+
+    foreach ($inscricoes as $i) {
+        fputcsv($fh, [
+            get_the_title($i->evento_id),
+            $i->nome,
+            $i->email,
+            $i->cpf,
+            $i->categoria,
+            $i->status,
+            $i->valor,
+            $i->patrocinador_id ? get_the_title($i->patrocinador_id) : '',
+            $i->pedido_id ?: '',
+            $i->criado_em
+        ]);
+    }
+
+    exit;
+    }
+    
+    global $wpdb;
+    $tabela = $wpdb->prefix . 'mpe_inscricoes';
+
+    // Filtros
+    $eventos = get_posts([ 'post_type' => 'evento', 'numberposts' => -1 ]);
+    $patrocinadores = get_posts([ 'post_type' => 'patrocinador', 'numberposts' => -1 ]);
+    
+    $evento_id = intval($_GET['evento_id'] ?? 0);
+    $categoria = sanitize_text_field($_GET['categoria'] ?? '');
+    $status = sanitize_text_field($_GET['status'] ?? '');
+    $patrocinador_id = intval($_GET['patrocinador_id'] ?? 0);
+
+    // Monta query SQL
+    $where = "WHERE 1=1";
+    if ($evento_id) $where .= $wpdb->prepare(" AND evento_id = %d", $evento_id);
+    if ($categoria) $where .= $wpdb->prepare(" AND categoria = %s", $categoria);
+    if ($status) $where .= $wpdb->prepare(" AND status = %s", $status);
+    if ($patrocinador_id) $where .= $wpdb->prepare(" AND patrocinador_id = %d", $patrocinador_id);
+
+    $inscricoes = $wpdb->get_results("SELECT * FROM $tabela $where ORDER BY criado_em DESC");
+
+    ?>
+    <div class="wrap">
+        <h1>Inscrições</h1>
+
+        <form method="get" style="margin-bottom:20px;">
+            <input type="hidden" name="post_type" value="evento">
+            <input type="hidden" name="page" value="inscricoes">
+
+            <label>Evento:
+                <select name="evento_id">
+                    <option value="">Todos</option>
+                    <?php foreach ($eventos as $e): ?>
+                        <option value="<?php echo $e->ID; ?>" <?php selected($e->ID, $evento_id); ?>><?php echo esc_html($e->post_title); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+
+            <label>Status:
+                <select name="status">
+                    <option value="">Todos</option>
+                    <option value="pendente" <?php selected('pendente', $status); ?>>Pendente</option>
+                    <option value="confirmado" <?php selected('confirmado', $status); ?>>Confirmado</option>
+                </select>
+            </label>
+
+            <label>Categoria:
+                <input type="text" name="categoria" value="<?php echo esc_attr($categoria); ?>" />
+            </label>
+
+            <label>Patrocinador:
+                <select name="patrocinador_id">
+                    <option value="">Todos</option>
+                    <?php foreach ($patrocinadores as $p): ?>
+                        <option value="<?php echo $p->ID; ?>" <?php selected($p->ID, $patrocinador_id); ?>><?php echo esc_html($p->post_title); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+
+            <button type="submit" class="button button-primary">Filtrar</button>
+            <a href="<?php echo admin_url('edit.php?post_type=evento&page=inscricoes&export=1'); ?>" class="button">Exportar CSV</a>
+        </form>
+
+        <table class="widefat striped">
+            <thead>
+                <tr>
+                    <th>Evento</th>
+                    <th>Nome</th>
+                    <th>Email</th>
+                    <th>CPF</th>
+                    <th>Categoria</th>
+                    <th>Status</th>
+                    <th>Valor</th>
+                    <th>Patrocinador</th>
+                    <th>Pedido Woo</th>
+                    <th>Data</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($inscricoes as $i): ?>
+                    <tr>
+                        <td><?php echo get_the_title($i->evento_id); ?></td>
+                        <td><?php echo esc_html($i->nome); ?></td>
+                        <td><?php echo esc_html($i->email); ?></td>
+                        <td><?php echo esc_html($i->cpf); ?></td>
+                        <td><?php echo esc_html($i->categoria); ?></td>
+                        <td><?php echo esc_html($i->status); ?></td>
+                        <td>R$ <?php echo number_format($i->valor, 2, ',', '.'); ?></td>
+                        <td><?php echo $i->patrocinador_id ? get_the_title($i->patrocinador_id) : '-'; ?></td>
+                        <td><?php echo $i->pedido_id ? "<a href='".admin_url("post.php?post={$i->pedido_id}&action=edit")."'>#{$i->pedido_id}</a>" : '-'; ?></td>
+                        <td><?php echo date('d/m/Y H:i', strtotime($i->criado_em)); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+    <?php
+}
+
 
 
 }
